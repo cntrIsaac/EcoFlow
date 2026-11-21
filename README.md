@@ -1,4 +1,4 @@
-﻿# SolarOps Manager
+# SolarOps Manager
 
 Aplicación interna para gestionar proyectos de instalación de paneles solares, desarrollada con React 18, TypeScript estricto, Tailwind CSS v4 y Supabase bajo una metodología Specification-Driven Development (SDD).
 
@@ -111,6 +111,125 @@ La vista previa local del artefacto se inicia con:
 npm run preview
 ```
 
-## Documentación técnica
+## Documento de arquitectura (Markdown)
 
-`ARCHITECTURE.md` describe el contrato de datos, el diagrama ERD en Mermaid, las decisiones de seguridad RLS, el uso de `SECURITY DEFINER` y la trazabilidad del desarrollo guiado por especificaciones.
+La documentación de arquitectura se presenta en formato Markdown en [ARCHITECTURE.md](ARCHITECTURE.md). Describe el modelo de datos, la separación de responsabilidades, las políticas RLS y el flujo de desarrollo guiado por especificaciones. A continuación se incluyen el diagrama de la base de datos, la estructura del repositorio y el prompt inicial que definió la implementación.
+
+### Diagrama de la base de datos
+
+```mermaid
+erDiagram
+  AUTH_USERS ||--o| INSTALADORES : identidad
+  INSTALADORES ||--o{ PROYECTOS : gestiona
+  PROYECTOS ||--o{ PROYECTO_MATERIALES : requiere
+  MATERIALES ||--o{ PROYECTO_MATERIALES : asignado
+  AUTH_USERS {
+    uuid id PK
+  }
+  INSTALADORES {
+    uuid id PK,FK
+    text nombre_completo
+    text email UK
+    text telefono
+    text certificacion
+    text rol
+    boolean activo
+    timestamptz created_at
+  }
+  PROYECTOS {
+    uuid id PK
+    text nombre_cliente
+    text direccion_instalacion
+    numeric capacidad_kw
+    estado_proyecto estado
+    date fecha_inicio
+    date fecha_estimada_fin
+    uuid instalador_id FK
+    text notas_tecnicas
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  MATERIALES {
+    uuid id PK
+    text sku UK
+    text nombre
+    text categoria
+    text unidad_medida
+    numeric stock_disponible
+  }
+  PROYECTO_MATERIALES {
+    uuid proyecto_id PK,FK
+    uuid material_id PK,FK
+    numeric cantidad_asignada
+  }
+```
+
+Cada perfil de instalador está vinculado a una cuenta de Supabase Auth. Un instalador gestiona varios proyectos y cada proyecto puede tener varios materiales mediante `proyecto_materiales`, cuya clave primaria compuesta evita duplicar el mismo material en un proyecto.
+
+### Estructura y responsabilidades
+
+```text
+├── supabase/
+│   ├── schema.sql
+│   └── schema.test.mjs
+├── src/
+│   ├── types/database.types.ts
+│   ├── lib/
+│   │   ├── supabase.ts
+│   │   ├── proyectoValidation.ts
+│   │   └── proyectoValidation.test.ts
+│   ├── context/AuthContext.tsx
+│   ├── hooks/useProyectos.ts
+│   ├── components/
+│   │   ├── DashboardStats.tsx
+│   │   ├── ProyectoForm.tsx
+│   │   └── ProyectoList.tsx
+│   ├── App.tsx
+│   ├── main.tsx
+│   ├── index.css
+│   └── vite-env.d.ts
+├── .env.example
+├── ARCHITECTURE.md
+├── README.md
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+| Ubicación                 | Responsabilidad                                                                                                  |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `supabase/`               | Define tablas, relaciones, restricciones, semillas y políticas RLS; verifica el esquema con PostgreSQL embebido. |
+| `src/types/`              | Representa el contrato SQL con tipos estrictos para filas, inserciones, actualizaciones, relaciones y estados.   |
+| `src/lib/`                | Centraliza el cliente de Supabase, el manejo de errores y la validación de los datos del formulario.             |
+| `src/context/`            | Mantiene la sesión y expone las operaciones de inicio y cierre de sesión.                                        |
+| `src/hooks/`              | Coordina consultas, creación, cambios de estado y sincronización Realtime de los proyectos.                      |
+| `src/components/`         | Presenta los indicadores, el formulario y la tabla interactiva.                                                  |
+| `src/App.tsx`             | Orquesta el login y el dashboard protegido.                                                                      |
+| `src/main.tsx`            | Inicia React y proporciona el contexto de autenticación.                                                         |
+| `src/index.css`           | Integra Tailwind CSS v4 y los estilos compartidos.                                                               |
+| Archivos de configuración | Definen dependencias, compilación, tipado estricto y variables públicas de conexión.                             |
+
+El flujo de datos sigue `Componentes → useProyectos → cliente Supabase → PostgreSQL/RLS`. Auth aporta la identidad; PostgreSQL determina qué filas puede consultar o modificar cada usuario. La función `es_admin()` utiliza `SECURITY DEFINER` y un `search_path` fijo para consultar roles sin provocar la recursión de políticas asociada al error `42P17`.
+
+### Prompt clave utilizado: especificación inicial
+
+Se documenta únicamente el primer prompt, que estableció el alcance y los requisitos detallados del proyecto. La siguiente síntesis conserva sus instrucciones técnicas y criterios de aceptación.
+
+> Actúa como un Arquitecto de Software Senior especialista en React, TypeScript, Tailwind CSS y Supabase. Construye desde cero el repositorio **SolarOps Manager**, una aplicación interna para gestionar proyectos de instalación de paneles solares bajo **Specification-Driven Development (SDD)**, preparada para producción.
+>
+> **Stack obligatorio:** React 18 o superior con Vite, TypeScript con `strict: true` y sin utilizar `any`, Tailwind CSS v4, `lucide-react` y `@supabase/supabase-js` para Auth y PostgreSQL con RLS.
+>
+> **Arquitectura modular:** genera `supabase/schema.sql`, `src/types/database.types.ts`, `src/lib/supabase.ts`, `src/context/AuthContext.tsx`, `src/hooks/useProyectos.ts`, los componentes `DashboardStats.tsx`, `ProyectoForm.tsx` y `ProyectoList.tsx`, `App.tsx`, `main.tsx`, `.env.example`, `ARCHITECTURE.md` y `README.md`, respetando la separación de responsabilidades.
+>
+> **Base de datos:** define el enum `estado_proyecto` con `Pendiente`, `En Progreso` y `Completado`. Crea `instaladores` con UUID vinculado a `auth.users`, nombre completo, email único, teléfono, certificación, rol `admin` o `instalador`, activo y fecha de creación. Crea `proyectos` con UUID, cliente, dirección, capacidad `NUMERIC(6,2)` mayor que cero, estado, fechas de inicio y fin estimado, instalador, notas técnicas y timestamps. La fecha de fin debe ser nula o igual o posterior al inicio. Crea `materiales` con UUID, SKU único, nombre, categoría, unidad y stock no negativo; relaciona proyectos y materiales mediante `proyecto_materiales` con cantidad asignada mayor que cero. Incluye datos semilla de materiales.
+>
+> **Seguridad:** habilita RLS en todas las tablas y crea `public.es_admin()` con `SECURITY DEFINER` para evitar recursión infinita al consultar roles. Las políticas SELECT, INSERT y UPDATE de proyectos deben permitir acceso cuando `instalador_id = auth.uid() OR public.es_admin()`.
+>
+> **Autenticación y acceso a datos:** utiliza un cliente singleton configurado con `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`. AuthContext debe restaurar y observar la sesión mediante `getSession()` y `onAuthStateChange()`, y exponer `session`, `user`, `loading`, `signIn` y `signOut`. El hook `useProyectos` debe gestionar proyectos, carga, errores, creación y actualización de estado, dejando que RLS filtre en el servidor sin añadir filtros manuales por instalador al SELECT.
+>
+> **Interfaz y validación:** el formulario debe exigir cliente de al menos 3 caracteres, dirección de al menos 5, capacidad positiva, fecha de inicio y fecha final igual o posterior al inicio cuando esté presente. Debe mostrar errores claros y limpiarse únicamente tras guardar correctamente. El dashboard debe mostrar indicadores por estado y capacidad en kW; la tabla debe permitir cambios de estado mediante un select conectado a `actualizarEstado`.
+>
+> **Documentación:** incluye un diagrama ERD en Mermaid, la justificación de RLS y `SECURITY DEFINER` frente al error PostgreSQL `42P17`, y el registro del desarrollo guiado por especificaciones y tipado estricto. Documenta la instalación, configuración de Supabase, variables de entorno y ejecución local.
+>
+> **Criterios de entrega:** revisa `package.json`, instala las dependencias necesarias, genera código limpio y modular, y ejecuta `npm run build` para comprobar que no haya errores de compilación ni de tipos.
